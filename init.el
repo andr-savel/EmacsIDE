@@ -1,10 +1,11 @@
-    ; Package installer
-    ;     to list packagess print: M-x list-packages
+;;;;;;;;;;;;;;;;;;;;;;;;;; Package installer
+; to list packagess print: M-x list-packages
 (require 'package)
 (add-to-list 'package-archives
              '("melpa" . "https://melpa.org/packages/"))
 (package-initialize)
-    ;     check and install packages
+
+; check and install packages
 (defvar required-packages '(undo-tree
                             ))
 
@@ -17,10 +18,11 @@
                 (setq is-pack-list-refreshed 1)))
         (package-install package)))
 
-    ; cua-mode
+;;;;;;;;;;;;;;;;;;;;;;;;;; cua-mode
 (cua-mode t)
+(setq cua-keep-region-after-copy t)
 
-    ; switch-on undo-tree
+;;;;;;;;;;;;;;;;;;;;;;;;;; undo-tree
 (require 'undo-tree)
 (global-undo-tree-mode 1)
 (defalias 'redo 'undo-tree-redo)
@@ -29,19 +31,82 @@
 (global-set-key (kbd "C-M-z") 'redo)
 (global-set-key (kbd "C-y") 'redo)
 
-    ; start/end of file
-(global-set-key (kbd "M-,") 'beginning-of-buffer)
-(global-set-key (kbd "M-.") 'end-of-buffer)
+;;;;;;;;;;;;;;;;;;;;;;;;;; search with Custom Highlight (sch)
+; case sensitivity
+(setq sch-global-case-insensitivity t)
+(defvar-local sch-local-case-insensitivity sch-global-case-insensitivity)
+(defadvice re-search-forward (before sch-advice-search-forward activate) (setq case-fold-search sch-local-case-insensitivity))
+(defadvice re-search-backward (before sch-advice-search-backward activate) (setq case-fold-search sch-local-case-insensitivity))
 
-    ; mark whole buffer
-(global-set-key (kbd "C-a") 'mark-whole-buffer)
+(defun sch-change-case-sensitivity ()
+    (interactive)
+    (if sch-global-case-insensitivity
+        (progn
+            (setq sch-global-case-insensitivity nil)
+            (message "case-sensitive search"))
+        (setq sch-global-case-insensitivity t)
+        (message "case-INsensitive search")))
 
-    ; Search with Custom Highlight (sch)
-;TODO: set pointer to start of word when search-forward
-;TODO: select found text 
-; definitions
+(global-set-key (kbd "M-f") 'sch-change-case-sensitivity)
+
+; search core
 (setq sch-global-regexp "")
-(defvar-local sch-local-regexp "")
+(defvar-local sch-local-regexp sch-global-regexp)
+(defvar-local sch-local-search-status nil)
+
+(defun sch-deselect-search-result ()
+    (if sch-local-search-status
+        (progn
+            (setq mark-active nil)
+            (setq sch-local-search-status nil))))
+
+(defun sch-x-direction-with-selection (search-direction match-side regexp)
+    (sch-deselect-search-result)
+    (setq sch-local-search-status (funcall search-direction regexp nil t))
+    (if sch-local-search-status
+        (set-mark (funcall match-side 0)))
+    sch-local-search-status)
+
+(defun sch-x-direction-core (search-direction1 search-direction2 goto-side side-name)
+    (when (and (not (funcall search-direction1 sch-local-regexp)) (funcall search-direction2 sch-local-regexp nil t))
+        (funcall goto-side)
+        (funcall search-direction1 sch-local-regexp)
+        (message "Searching from the %s" side-name)))
+
+(defun sch-x-direction (direction1 direction2 goto-side side-name)
+    (when (or (not (string-equal sch-local-regexp sch-global-regexp)) (not (equal sch-local-case-insensitivity sch-global-case-insensitivity)))
+        (if (not (string-equal sch-local-regexp ""))
+            (unhighlight-regexp sch-local-regexp))
+        (setq sch-local-regexp sch-global-regexp)
+        (setq sch-local-case-insensitivity sch-global-case-insensitivity)
+        (highlight-regexp sch-local-regexp))
+    (sch-x-direction-core direction1 direction2 goto-side side-name))
+
+; manipulations with search result's selection
+(add-hook 'pre-command-hook 'sch-deselect-search-result-before)
+(add-hook 'pre-command-hook 'sch-deselect-search-result-after)
+(defun sch-deselect-search-result-before ()
+    (if (and sch-local-search-status (and (use-region-p) (eq (get this-command 'CUA) 'move)))
+        (sch-deselect-search-result)))
+
+(defun sch-deselect-search-result-after ()
+    (if (and sch-local-search-status (not (use-region-p)))
+        (sch-deselect-search-result)))
+
+; search in direction
+(defun sch-forward-search-with-selection (regexp)
+    (sch-x-direction-with-selection 're-search-forward 'match-beginning regexp))
+
+(defun sch-backward-search-with-selection (regexp)
+    (sch-x-direction-with-selection 're-search-backward 'match-end regexp))
+
+(defun sch-forward ()
+    (interactive)
+    (sch-x-direction 'sch-forward-search-with-selection 're-search-backward 'beginning-of-buffer "beginning"))
+
+(defun sch-backward ()
+    (interactive)
+    (sch-x-direction 'sch-backward-search-with-selection 're-search-forward 'end-of-buffer "end"))
 
 ; initial search
 (defun sch-search ()
@@ -50,70 +115,36 @@
     (sch-forward)
 )
 
-; search forward
-(defun sch-forward-core ()
-    (interactive)
-    (when (and (not (re-search-forward sch-local-regexp nil t)) (re-search-backward sch-local-regexp nil t))
-        (beginning-of-buffer)
-        (re-search-forward sch-local-regexp nil nil)
-        (message "Searching from beginning"))
-)
-(defun sch-forward ()
-    (interactive)
-    (when (not (string-equal sch-local-regexp sch-global-regexp))
-        (message "llll")
-        (if (not (string-equal sch-local-regexp ""))
-            (unhighlight-regexp sch-local-regexp))
-        (setq sch-local-regexp sch-global-regexp)
-        (highlight-regexp sch-local-regexp))
-    (sch-forward-core)
-)
-
-; search backward
-(defun sch-backward-core ()
-    (interactive)
-    (when (and (not (re-search-backward sch-local-regexp nil t)) (re-search-forward sch-local-regexp nil t))
-        (end-of-buffer)
-        (re-search-backward sch-local-regexp nil nil)
-        (message "Searching from end"))
-)
-(defun sch-backward ()
-    (interactive)
-    (when (not (string-equal sch-local-regexp sch-global-regexp))
-        (message "llll")
-        (if (not (string-equal sch-local-regexp ""))
-            (unhighlight-regexp sch-local-regexp))
-        (setq sch-local-regexp sch-global-regexp)
-        (highlight-regexp sch-local-regexp))
-    (sch-backward-core)
-)
-
 ; key bindings
 (global-set-key (kbd "C-f") 'sch-search)
 (global-set-key (kbd "<f3>") 'sch-forward)
 (global-set-key (kbd "M-<f3>") 'sch-backward)
 
-    ; set comfortable scrolling mode
+;;;;;;;;;;;;;;;;;;;;;;;;;; set comfortable scrolling mode
 (setq scroll-step 1)
 (setq scroll-conservatively 10000)
 
-    ; remove useless windows on start
+;;;;;;;;;;;;;;;;;;;;;;;;;; remove useless windows on start
 (setq inhibit-splash-screen t)
 (setq inhibit-startup-message t)
 
-    ; show pair for (){}[] TODO: {} does not work
+;;;;;;;;;;;;;;;;;;;;;;;;;; show pair for (){}[] TODO: {} does not work
 (show-paren-mode t)
 
-    ; wrap lines
+;;;;;;;;;;;;;;;;;;;;;;;;;; wrap lines
 (setq word-wrap t)
 (global-visual-line-mode t)
 
-    ; highlight current line
-;(global-hl-line-mode 1)
-
-
-    ;; keys
+;;;;;;;;;;;;;;;;;;;;;;;;;; common key bindings
 ;; C-h b) all key bindings
 ;; C-x o) next window
+(global-set-key (kbd "M-q") 'keyboard-quit)
+(global-set-key (kbd "C-g") 'goto-line)
+(global-set-key (kbd "C-a") 'mark-whole-buffer)
+;(global-hl-line-mode 1) ; highlight current line
+
+(global-set-key (kbd "M-,") 'beginning-of-buffer)
+(global-set-key (kbd "M-.") 'end-of-buffer)
+
 
 ;; to check the following search tools: swiper, helm swoop, swoop
