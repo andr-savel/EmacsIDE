@@ -21,10 +21,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;; cua-mode
 (cua-mode t)
 (setq cua-keep-region-after-copy t)
+(put 'dired-previous-line 'CUA 'move)
+(put 'dired-next-line 'CUA 'move)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; undo-tree
 (require 'undo-tree)
 (global-undo-tree-mode 1)
+(setq undo-tree-enable-undo-in-region nil)
 (defalias 'redo 'undo-tree-redo)
 (global-set-key (kbd "C-z") 'undo)
 (global-set-key (kbd "C-S-z") 'redo)
@@ -43,7 +46,7 @@
     (if sch-global-case-insensitivity
         (progn
             (setq sch-global-case-insensitivity nil)
-            (message "case-sensitive search"))
+            (message "case-sensitive search")) ; TODO: integrate search case sensitivity into emacs mode line
         (setq sch-global-case-insensitivity t)
         (message "case-INsensitive search")))
 
@@ -128,23 +131,50 @@
 (setq inhibit-splash-screen t)
 (setq inhibit-startup-message t)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;; show pair for (){}[] TODO: {} does not work
+;;;;;;;;;;;;;;;;;;;;;;;;;; show pair for parentheses
 (show-paren-mode t)
+(setq show-paren-delay 0)
+(setq show-paren-when-point-inside-paren t)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; wrap lines
 (setq word-wrap t)
 (global-visual-line-mode t)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; common key bindings
-;; C-h b) all key bindings
-;; C-x o) next window
-(global-set-key (kbd "M-q") 'keyboard-quit)
+;; C-h
+;;     b) all key bindings
+;;     k) description for appropriate key
+;;     f) description for function
+;;     v) description for variable
+;;     w) key bindings for specified command
+;; C-x
+;;     C-c) close emacs
+;;     C-w) write changes to another file
+;;     o) next window
+(global-set-key (kbd "M-q") 'keyboard-escape-quit)
 (global-set-key (kbd "C-g") 'goto-line)
 (global-set-key (kbd "C-a") 'mark-whole-buffer)
 ;(global-hl-line-mode 1) ; highlight current line
 
-(global-set-key (kbd "M-,") 'beginning-of-buffer)
-(global-set-key (kbd "M-.") 'end-of-buffer)
+(global-set-key (kbd "C-,") 'beginning-of-buffer)
+(global-set-key (kbd "C-.") 'end-of-buffer)
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; file actions
+(defun save-all-buffers-without-questions ()
+    (interactive)
+    (save-some-buffers t))
+(global-set-key (kbd "C-s") 'save-all-buffers-without-questions)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; other
+(setq column-number-mode t)
+
+;; TODO:
+;; 1) make minibuffer interactive (not only in icomplete-mode? but always (on file opening))
+;; 2) tune makr and global mark ring
+;; 3) correct identation for C++ buffer, python buffer; remove trailing white spaces on "save buffer" action
+;; 4) integrate 'query-replace (conditional replace)
+;; 5) rebind find-file-another-window (C-x 4 f)
+;; 6) to intoroduce sch-search minor mode
 
 ;; to check the following search tools: swiper, helm swoop, swoop
