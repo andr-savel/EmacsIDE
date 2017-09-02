@@ -23,6 +23,9 @@
 (setq cua-keep-region-after-copy t)
 (put 'dired-previous-line 'CUA 'move)
 (put 'dired-next-line 'CUA 'move)
+(put 'next-completion 'CUA 'move)
+(put 'previous-completion 'CUA 'move)
+(put 'close-current-buffer 'CUA 'move)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; undo-tree
 (require 'undo-tree)
@@ -135,6 +138,20 @@
 (show-paren-mode t)
 (setq show-paren-delay 0)
 (setq show-paren-when-point-inside-paren t)
+(defun forward-or-backward-sexp (&optional arg)
+    (interactive "^p")
+    (cond ((looking-at "\\s(") (forward-sexp arg))
+        ((looking-back "\\s)" 1) (backward-sexp arg))
+        ((looking-at "\\s)") (forward-char) (backward-sexp arg))))
+(global-set-key (kbd "C-p") 'forward-or-backward-sexp)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; indentations
+; C++
+(setq c-basic-offset 4)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; syntacs actions
+; LISP
+(global-set-key (kbd "C-SPC") 'lisp-complete-symbol) ; TODO: should be rebind for LISP major mode only
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; wrap lines
 (setq word-wrap t)
@@ -151,7 +168,28 @@
 ;;     C-c) close emacs
 ;;     C-w) write changes to another file
 ;;     o) next window
-(global-set-key (kbd "M-q") 'keyboard-escape-quit)
+;; C-
+;;     j) exec LISP expression in *scratch* buffer
+;;        also use 'M-x ielm' to interpret LISP.
+(defun my-keyboard-escape-quit ()
+; Redefinition of keyboard-escape-quit emacs original function.
+; 'delete-other-windows' call removed.
+; 'close-current-buffer' is used for this purposes.
+    (interactive)
+    (cond ((eq last-command 'mode-exited) nil)
+        ((region-active-p)
+            (deactivate-mark))
+        ((> (minibuffer-depth) 0)
+            (abort-recursive-edit))
+        (current-prefix-arg
+            nil)
+        ((> (recursion-depth) 0)
+            (exit-recursive-edit))
+        (buffer-quit-function
+            (funcall buffer-quit-function))
+        ((string-match "^ \\*" (buffer-name (current-buffer)))
+            (bury-buffer))))
+(global-set-key (kbd "M-q") 'my-keyboard-escape-quit)
 (global-set-key (kbd "C-g") 'goto-line)
 (global-set-key (kbd "C-a") 'mark-whole-buffer)
 ;(global-hl-line-mode 1) ; highlight current line
@@ -169,6 +207,25 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;; other
 (setq column-number-mode t)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;; buffers
+(setq enable-recursive-minibuffers t)
+(defun close-current-buffer ()
+    (interactive)
+    (if (= (length (get-buffer-window-list nil)) 1)
+        (kill-buffer nil))
+    (if (not (one-window-p t))
+        (delete-window)))
+(global-set-key (kbd "M-c") 'close-current-buffer)
+(global-set-key (kbd "C-o") 'find-file)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; windows
+(global-set-key (kbd "C-w") 'next-multiframe-window)
+(defun switch-to-buffer-in-window ()
+    (interactive)
+    (switch-to-buffer-other-window (current-buffer)))
+(define-key input-decode-map [?\C-m] [C-m])
+(global-set-key (kbd "<C-m>") 'switch-to-buffer-in-window) ;; multiply buffer
+
 ;; TODO:
 ;; 1) make minibuffer interactive (not only in icomplete-mode? but always (on file opening))
 ;; 2) tune makr and global mark ring
@@ -176,5 +233,12 @@
 ;; 4) integrate 'query-replace (conditional replace)
 ;; 5) rebind find-file-another-window (C-x 4 f)
 ;; 6) to intoroduce sch-search minor mode
+;; 7) try LazyLock mode
+;; 8) tune correct indentations for C++/python
+;; 9) set C++ comment for region
+;; 10) to use counsel-rg to integrate ripgrep into emacs
+;; 11) to remove 'auto-save' and 'backup' files when save files in emacs.
+;;     also don't create 'auto-save' file when 'save changes into file' is ignored and 'save changes in buffer to somewhere' is ignored too.
+;; 12) 'projectile' project environment for emacs
 
 ;; to check the following search tools: swiper, helm swoop, swoop
