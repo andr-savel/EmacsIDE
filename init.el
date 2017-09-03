@@ -37,6 +37,16 @@
 (global-set-key (kbd "C-M-z") 'redo)
 (global-set-key (kbd "C-y") 'redo)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;; minibuffer
+(setq text-in-current-region "")
+(defun store-text-in-current-region ()
+    (if (use-region-p)
+        (setq text-in-current-region (buffer-substring (region-beginning) (region-end)))))
+(defun insert-region-content-into-munibuffer ()
+    (if (not (string-equal text-in-current-region ""))
+        (insert text-in-current-region)))
+(add-hook 'minibuffer-setup-hook 'insert-region-content-into-munibuffer)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;; search with Custom Highlight (sch)
 ; case sensitivity
 (setq sch-global-case-insensitivity t)
@@ -117,14 +127,16 @@
 ; initial search
 (defun sch-search ()
     (interactive)
+    (store-text-in-current-region)
     (setq sch-global-regexp (read-regexp "Search"))
+    (setq text-in-current-region "")
     (sch-forward)
 )
 
 ; key bindings
 (global-set-key (kbd "C-f") 'sch-search)
 (global-set-key (kbd "<f3>") 'sch-forward)
-(global-set-key (kbd "M-<f3>") 'sch-backward)
+(global-set-key (kbd "S-<f3>") 'sch-backward)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; set comfortable scrolling mode
 (setq scroll-step 1)
@@ -152,6 +164,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;; syntacs actions
 ; LISP
 (global-set-key (kbd "C-SPC") 'lisp-complete-symbol) ; TODO: should be rebind for LISP major mode only
+(defun find-lisp-func-def ()
+    (interactive)
+    (find-function (function-called-at-point)))
+(global-set-key (kbd "<f2>") 'find-lisp-func-def) ; TODO: should be rebind for LISP major mode only
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; wrap lines
 (setq word-wrap t)
