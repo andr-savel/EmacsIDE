@@ -5,9 +5,8 @@ Configs which make emacs C++ and Python IDE
 2) Uses
     - CUA mode
     - undo tree (native undo is not conveniently)
+    - rtags
     - ivy
-    - ivy-reach
-    - ivy-rtags
     - company
 3) Some keybindings
 4) Search with Custom Highlight (SCH):
