@@ -7,7 +7,10 @@
 
 ; check and install packages
 (defvar required-packages '(undo-tree
-                            ))
+                            ivy
+                            ivy-rich
+                            ivy-rtags
+                            company))
 
 (defvar is-pack-list-refreshed 0)
 (dolist (package required-packages)
@@ -17,6 +20,72 @@
                 (package-refresh-contents)
                 (setq is-pack-list-refreshed 1)))
         (package-install package)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; rtags
+; common
+(setq rtags-autostart-diagnostics t)
+(setq rtags-display-result-backend 'ivy)
+
+; code navigation
+(setq eide-rtags-root (concat (getenv "EIDE_INSTALLATION_PATH") "/rtags"))
+
+(setq rtags-path (concat eide-rtags-root "/bin"))
+(load (concat eide-rtags-root "/src/rtags"))
+(setq rtags-enable-unsaved-reparsing t)
+;(customize-set-variable 'rtags-periodic-reparse-timeout 0.5)
+(setq rtags-jump-to-first-match nil)
+
+; EIDE_PROJECT_ROOT directory should contain:
+;     - project source tree
+;     - compile_commands.json file with appropriate compilations commans
+; Then EIDIE starts 'rdm' and after 'rc' to index project sources.
+(setq eide-project-root (getenv "EIDE_PROJECT_ROOT"))
+(setq eide-rtags-index (concat eide-project-root "/eide_rtags_index"))
+(setq rtags-process-flags (concat (concat "--progress --data-dir " eide-rtags-index) " -j10"))
+(defun eide-rtags-parse-project ()
+    (rtags-start-process-unless-running)
+    (sleep-for 3) ; TODO: start eide-rtags-parse-project asynchronously; if 'eide_rtags_index' dir exists then return from this function immediately
+    (start-process-shell-command "RTags" "*rc*" (concat "rc -J " eide-project-root)))
+(eide-rtags-parse-project)
+
+(define-key rtags-mode-map (kbd "M-c") nil)
+(define-key c-mode-base-map (kbd "<f2>") 'rtags-find-symbol-at-point)
+(define-key c-mode-base-map (kbd "C-u") 'rtags-find-references-at-point)
+(define-key c-mode-base-map (kbd "C-S-r") 'rtags-rename-symbol)
+(define-key c-mode-base-map (kbd "C-M-v") 'rtags-find-virtuals-at-point)
+
+; code indexer progrees
+(add-to-list 'global-mode-string '(:eval (rtags-modeline)))
+(add-hook 'rtags-diagnostics-hook (function force-mode-line-update))
+
+; code completion
+(require 'company)
+(setq rtags-completions-enabled t)
+(push 'company-rtags company-backends)
+(push 'company-files company-backends)
+(global-company-mode)
+(define-key c-mode-base-map (kbd "<C-SPC>") (function company-complete))
+(setq completion-ignore-case t) ; TODO: repair case insensitivity for completion
+;TODO: setup completion for file names
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; ivy
+(require 'ivy)
+(ivy-mode 1)
+(setq ivy-wrap t)
+(global-set-key (kbd "C-<next>") 'ivy-switch-buffer)
+(define-key ivy-minibuffer-map (kbd "C-<next>") 'ivy-next-line)
+(global-set-key (kbd "C-<prior>") 'ivy-switch-buffer)
+(define-key ivy-minibuffer-map (kbd "C-<prior>") 'ivy-previous-line)
+(define-key ivy-minibuffer-map (kbd "M-<up>") 'ivy-previous-history-element)
+(define-key ivy-minibuffer-map (kbd "M-<down>") 'ivy-next-history-element)
+
+(require 'ivy-rich)
+(ivy-set-display-transformer 'ivy-switch-buffer 'ivy-rich-switch-buffer-transformer)
+(setq ivy-rich-abbreviate-paths t)
+(defadvice ivy-rich-switch-buffer-format (around eide-ivy-rich-switch-buffer-format (columns) activate)
+    (setq columns `(,(nth 2 columns) ,(nth 0 columns) ,(nth 5 columns)))  ; use only 'indicator', 'buf-name', 'path'
+    ad-do-it)
+;;TODO: to select appropriate buffer when 'crtl' key is up (possibly can be implemented with xdotool and other unix tools)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; cua-mode
 (cua-mode t)
@@ -163,11 +232,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; syntacs actions
 ; LISP
-(global-set-key (kbd "C-SPC") 'lisp-complete-symbol) ; TODO: should be rebind for LISP major mode only
+(define-key emacs-lisp-mode-map (kbd "C-SPC") 'lisp-complete-symbol)
 (defun find-lisp-func-def ()
     (interactive)
     (find-function (function-called-at-point)))
-(global-set-key (kbd "<f2>") 'find-lisp-func-def) ; TODO: should be rebind for LISP major mode only
+(define-key emacs-lisp-mode-map (kbd "<f2>") 'find-lisp-func-def)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; wrap lines
 (setq word-wrap t)
@@ -210,8 +279,8 @@
 (global-set-key (kbd "C-a") 'mark-whole-buffer)
 ;(global-hl-line-mode 1) ; highlight current line
 
-(global-set-key (kbd "C-,") 'beginning-of-buffer)
-(global-set-key (kbd "C-.") 'end-of-buffer)
+(global-set-key (kbd "M-,") 'beginning-of-buffer)
+(global-set-key (kbd "M-.") 'end-of-buffer)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; file actions
@@ -224,10 +293,11 @@
 (setq column-number-mode t)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; buffers
-(setq enable-recursive-minibuffers t)
+;(setq enable-recursive-minibuffers t)
 (defun close-current-buffer ()
     (interactive)
-    (if (= (length (get-buffer-window-list nil)) 1)
+    (setq is-special-buffer (or (string-equal (buffer-name) "*rdm*") (string-equal (buffer-name) "*RTags Diagnostics*")))
+    (if (and (= (length (get-buffer-window-list nil)) 1) (not is-special-buffer))
         (kill-buffer nil))
     (if (not (one-window-p t))
         (delete-window)))
@@ -239,18 +309,19 @@
 (defun switch-to-buffer-in-window ()
     (interactive)
     (switch-to-buffer-other-window (current-buffer)))
-(define-key input-decode-map [?\C-m] [C-m])
-(global-set-key (kbd "<C-m>") 'switch-to-buffer-in-window) ;; multiply buffer
+
+;(define-key input-decode-map [?\C-m] [C-m])
+;(global-set-key (kbd "<C-m>") 'switch-to-buffer-in-window) ;; multiply buffer
+(global-set-key (kbd "M-m") 'switch-to-buffer-in-window) ;; multiply buffer
 
 ;; TODO:
-;; 1) make minibuffer interactive (not only in icomplete-mode? but always (on file opening))
 ;; 2) tune makr and global mark ring
 ;; 3) correct identation for C++ buffer, python buffer; remove trailing white spaces on "save buffer" action
 ;; 4) integrate 'query-replace (conditional replace)
 ;; 5) rebind find-file-another-window (C-x 4 f)
 ;; 6) to intoroduce sch-search minor mode
 ;; 7) try LazyLock mode
-;; 8) tune correct indentations for C++/python
+;; 8) tune correct indentations for python and correct auto-format for C++ (if/else block, etc.)
 ;; 9) set C++ comment for region
 ;; 10) to use counsel-rg to integrate ripgrep into emacs
 ;; 11) to remove 'auto-save' and 'backup' files when save files in emacs.

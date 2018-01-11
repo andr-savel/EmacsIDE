@@ -5,7 +5,14 @@ Configs which make emacs C++ and Python IDE
 2) Uses
     - CUA mode
     - undo tree (native undo is not conveniently)
+    - ivy
+    - ivy-reach
+    - ivy-rtags
+    - company
 3) Some keybindings
 4) Search with Custom Highlight (SCH):
-    - highlight all occurences of specified regexp permanently
-    - navigate through the found occureneces
+    - highlight all occurences of specified regexp dynamically: text is highlighted/unhighlighted (if necessary) when it is modified
+    - navigate through the found occurences
+5) Code navigation and completion
+    Rtags is used: https://github.com/Andersbakken/rtags
+
