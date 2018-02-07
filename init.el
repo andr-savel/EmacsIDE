@@ -10,7 +10,9 @@
                             ivy
                             ivy-rich
                             ivy-rtags
-                            company))
+                            company
+                            company-rtags
+                            sr-speedbar))
 
 (defvar is-pack-list-refreshed 0)
 (dolist (package required-packages)
@@ -53,6 +55,7 @@
 (define-key c-mode-base-map (kbd "C-u") 'rtags-find-references-at-point)
 (define-key c-mode-base-map (kbd "C-S-r") 'rtags-rename-symbol)
 (define-key c-mode-base-map (kbd "C-M-v") 'rtags-find-virtuals-at-point)
+; TODO: <enter> on symbol references buffer's elements should move cursor to selected file buffer (instead of pointing to references buffer). Maybe it is better to use Helm instead of Ivy here.
 
 ; code indexer progrees
 (add-to-list 'global-mode-string '(:eval (rtags-modeline)))
@@ -62,11 +65,72 @@
 (require 'company)
 (setq rtags-completions-enabled t)
 (push 'company-rtags company-backends)
-(push 'company-files company-backends)
 (global-company-mode)
 (define-key c-mode-base-map (kbd "<C-SPC>") (function company-complete))
 (setq completion-ignore-case t) ; TODO: repair case insensitivity for completion
 ;TODO: setup completion for file names
+;TODO: close completion window when press escape
+;TODO: decrease completion witdow appearance timetout
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; debugger
+(require 'gud)
+(setq gdb-many-windows t)
+; gdb-restore-windows -- restore 'many-windows' layout
+(defun eide-gud-core (func)
+    (funcall func 1)
+    (if (or (or (eq major-mode 'c-mode) (eq major-mode 'c++-mode) (eq major-mode 'speedbar-mode)))
+        (goto-line gdb-selected-line)))
+;(define-key gud-minor-mode-map (kbd "<f5>") (lambda () (interactive) (eide-gud-core 'gud-run)))
+(define-key gud-minor-mode-map (kbd "<f10>") (lambda () (interactive) (eide-gud-core 'gud-next)))
+(define-key gud-minor-mode-map (kbd "<f11>") (lambda () (interactive) (eide-gud-core 'gud-step)))
+(define-key gud-minor-mode-map (kbd "<S-f11>") (lambda () (interactive) (eide-gud-core 'gud-finish)))
+
+
+;<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+(defadvice gdb-setup-windows (after activate)
+  (gdb-setup-my-windows)
+)
+
+(defun gdb-setup-my-windows ()
+  (set-window-dedicated-p (selected-window) nil)
+  (switch-to-buffer gud-comint-buffer)
+  (delete-other-windows)
+  (let
+    ((win0 (selected-window))             ; breakpoints
+     (win1 (split-window-horizontally
+         (floor (* 0.5 (window-width)))))   ; source + i/o
+     (win2 (split-window-vertically
+         (floor (* 0.5 (window-body-height))))) ; gdb
+;     (win3 (split-window-vertically
+;        (floor (* 0.5 (window-body-height))))) ; locals
+     (win4 (split-window-vertically
+         (floor (* 0.6 (window-body-height))))) ; stack
+    )
+    (select-window win1)
+    ; configurating right window
+    (let
+    ((winSrc (selected-window)) ; source
+     (winIO (split-window-vertically (floor (* 0.9 (window-body-height))))) ; I/O
+     )
+      (set-window-buffer winIO (gdb-get-buffer-create 'gdb-inferior-io))
+      (set-window-buffer
+    winSrc
+    (if gud-last-last-frame
+     (gud-find-file (car gud-last-last-frame))
+      (if gdb-main-file
+       (gud-find-file gdb-main-file)
+     (list-buffers-noselect))))
+      (setq gdb-source-window winSrc)
+      (set-window-dedicated-p winIO t)
+   )
+
+    (set-window-buffer win0 (gdb-get-buffer-create 'gdb-breakpoints-buffer))
+;    (set-window-buffer win3 (gdb-get-buffer-create 'gdb-locals-buffer))
+    (set-window-buffer win4 (gdb-get-buffer-create 'gdb-stack-buffer))
+    (select-window win2)
+  )
+)
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; ivy
 (require 'ivy)
@@ -291,6 +355,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; other
 (setq column-number-mode t)
+(xterm-mouse-mode 1)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; buffers
 ;(setq enable-recursive-minibuffers t)
