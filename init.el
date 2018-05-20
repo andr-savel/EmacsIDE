@@ -23,6 +23,9 @@
                 (setq is-pack-list-refreshed 1)))
         (package-install package)))
 
+;(setq linum-format "%d │$")
+;(setq linum-format "%4d \u2502 ")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;; rtags
 ; common
 (setq rtags-autostart-diagnostics t)
@@ -75,62 +78,115 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;; debugger
 (require 'gud)
 (setq gdb-many-windows t)
-; gdb-restore-windows -- restore 'many-windows' layout
+
 (defun eide-gud-core (func)
-    (funcall func 1)
-    (if (or (or (eq major-mode 'c-mode) (eq major-mode 'c++-mode) (eq major-mode 'speedbar-mode)))
-        (goto-line gdb-selected-line)))
-;(define-key gud-minor-mode-map (kbd "<f5>") (lambda () (interactive) (eide-gud-core 'gud-run)))
+    (select-window (get-buffer-window gud-comint-buffer)) ; gdb current line cursor is shown correctly in code window when gud-* commands executed from gdb window
+    (funcall func 1))
+
 (define-key gud-minor-mode-map (kbd "<f10>") (lambda () (interactive) (eide-gud-core 'gud-next)))
 (define-key gud-minor-mode-map (kbd "<f11>") (lambda () (interactive) (eide-gud-core 'gud-step)))
 (define-key gud-minor-mode-map (kbd "<S-f11>") (lambda () (interactive) (eide-gud-core 'gud-finish)))
+(define-key gud-minor-mode-map (kbd "<f5>") (lambda ()
+    (interactive)
+    (if gdb-active-process
+        (eide-gud-core 'gud-cont)
+        (eide-gud-core 'gud-run))))
+
+(define-key gud-minor-mode-map (kbd "<S-f5>") (lambda ()
+    (interactive)
+    (gud-basic-call "save breakpoints ~/breakpoints.gdb") ; TODO: to save breakpoints into project directory
+    (gud-basic-call "quit")
+    (write-region "source ~/breakpoints.gdb" nil "~/commands.gdb" nil) ; TODO: to save gdb commands into project directory
+    (while (get-buffer-process gud-comint-buffer)
+        (sleep-for 0.1))
+    (kill-buffer gud-comint-buffer)
+    (delete-window)))
+
+(global-set-key (kbd "<f5>") (lambda ()
+    (interactive)
+    (gdb (concat "gdb -i=mi --command=~/commands.gdb" " a.out")))) ; TODO: to provide real name of eide project binary path; take commands.gdb from prject root
+
+; TODO: show all local vars in speedbar
+
+; set/remove breakpoint by keyboard
+(defun eide-has-breakpoint-at-line ()
+    (interactive)
+    (catch 'has-bp
+        (dolist (b gdb-breakpoints-list)
+            (setq filePath (bindat-get-field b 'fullname))
+            (setq lineNo (string-to-number (bindat-get-field b 'line)))
+            (when (and (string-equal filePath (buffer-file-name))
+                       (eq lineNo (line-number-at-pos)))
+                (throw 'has-bp b)))
+        (throw 'has-bp nil)))
+
+(define-key gud-minor-mode-map (kbd "M-b") (lambda ()
+    (interactive)
+    (if (not (eide-has-breakpoint-at-line))
+        (gud-break nil)
+        (gud-remove nil))))
 
 
-;<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+(define-key gud-minor-mode-map (kbd "C-M-b") (lambda ()
+    (interactive)
+    (setq breakpoint (eide-has-breakpoint-at-line))
+    (if breakpoint
+        (gud-basic-call
+            (concat
+                (if (equal "y" (bindat-get-field breakpoint 'enabled))
+                    "-break-disable "
+                    "-break-enable ")
+                (bindat-get-field breakpoint 'number))))))
+
+; set windows custom layout
+; gdb-restore-windows -- restore 'many-windows' layout
 (defadvice gdb-setup-windows (after activate)
-  (gdb-setup-my-windows)
+  (eide-gdb-setup-windows)
 )
 
-(defun gdb-setup-my-windows ()
-  (set-window-dedicated-p (selected-window) nil)
-  (switch-to-buffer gud-comint-buffer)
-  (delete-other-windows)
-  (let
-    ((win0 (selected-window))             ; breakpoints
-     (win1 (split-window-horizontally
-         (floor (* 0.5 (window-width)))))   ; source + i/o
-     (win2 (split-window-vertically
-         (floor (* 0.5 (window-body-height))))) ; gdb
-;     (win3 (split-window-vertically
-;        (floor (* 0.5 (window-body-height))))) ; locals
-     (win4 (split-window-vertically
-         (floor (* 0.6 (window-body-height))))) ; stack
-    )
-    (select-window win1)
-    ; configurating right window
-    (let
-    ((winSrc (selected-window)) ; source
-     (winIO (split-window-vertically (floor (* 0.9 (window-body-height))))) ; I/O
-     )
-      (set-window-buffer winIO (gdb-get-buffer-create 'gdb-inferior-io))
-      (set-window-buffer
-    winSrc
-    (if gud-last-last-frame
-     (gud-find-file (car gud-last-last-frame))
-      (if gdb-main-file
-       (gud-find-file gdb-main-file)
-     (list-buffers-noselect))))
-      (setq gdb-source-window winSrc)
-      (set-window-dedicated-p winIO t)
-   )
+(defun eide-gdb-setup-windows ()
+    (gdb-get-buffer-create 'gdb-locals-buffer)
+    (gdb-get-buffer-create 'gdb-stack-buffer)
+    (gdb-get-buffer-create 'gdb-breakpoints-buffer)
+    (set-window-dedicated-p (selected-window) nil)
+    (delete-other-windows)
 
-    (set-window-buffer win0 (gdb-get-buffer-create 'gdb-breakpoints-buffer))
-;    (set-window-buffer win3 (gdb-get-buffer-create 'gdb-locals-buffer))
-    (set-window-buffer win4 (gdb-get-buffer-create 'gdb-stack-buffer))
-    (select-window win2)
-  )
-)
-;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    (let ((win-code (selected-window))
+          (win-stack (split-window nil ( / ( * (window-height) 3) 4)))
+          (win-locals (split-window-right ( / ( * (window-width) 5) 8))))
+            ; set code buffer
+        (set-window-buffer
+            win-code
+            (if gud-last-last-frame 
+                (gud-find-file (car gud-last-last-frame))
+                (if gdb-main-file
+                      (gud-find-file gdb-main-file)
+                    ;; Put buffer list in window if we
+                    ;; can't find a source file.
+                    (list-buffers-noselect))))
+            ; set stack buffer
+        (select-window win-stack)
+        (gdb-set-window-buffer (gdb-stack-buffer-name))
+            ; set breakpoints buffer
+        (let ((win-breakpoints (split-window-right)))
+            (gdb-set-window-buffer (if gdb-show-threads-by-default
+                                       (gdb-threads-buffer-name)
+                                     (gdb-breakpoints-buffer-name))
+             nil win-breakpoints))
+
+        (select-window win-locals)
+        (let ((win-gdb-cmd (split-window nil ( / ( * (window-height) 2) 3)))
+              (win-io (split-window-below)))
+            ; set locals buffer
+            (gdb-set-window-buffer (gdb-locals-buffer-name) nil win-locals)
+            ; set gdb-cmd buffer
+            (select-window win-gdb-cmd)
+            (switch-to-buffer gud-comint-buffer)
+            (set-window-dedicated-p (selected-window) t)
+            ; set io buffer
+            (gdb-set-window-buffer (gdb-get-buffer-create 'gdb-inferior-io) nil win-io)
+
+            (select-window win-gdb-cmd))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; ivy
 (require 'ivy)
@@ -158,7 +214,7 @@
 (put 'dired-next-line 'CUA 'move)
 (put 'next-completion 'CUA 'move)
 (put 'previous-completion 'CUA 'move)
-(put 'close-current-buffer 'CUA 'move)
+(put 'eide-close-current-buffer 'CUA 'move)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; undo-tree
 (require 'undo-tree)
@@ -355,18 +411,20 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; other
 (setq column-number-mode t)
-(xterm-mouse-mode 1)
+(xterm-mouse-mode 1) ; to paste selected text region from another application press "shift + middle_mouse_button"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; buffers
 ;(setq enable-recursive-minibuffers t)
-(defun close-current-buffer ()
+(defun eide-close-current-buffer ()
     (interactive)
     (setq is-special-buffer (or (string-equal (buffer-name) "*rdm*") (string-equal (buffer-name) "*RTags Diagnostics*")))
-    (if (and (= (length (get-buffer-window-list nil)) 1) (not is-special-buffer))
+    (if (or (and gud-minor-mode (not (window-dedicated-p)))
+         (and (not gud-minor-mode) (= (length (get-buffer-window-list nil)) 1) (not is-special-buffer)))
         (kill-buffer nil))
-    (if (not (one-window-p t))
-        (delete-window)))
-(global-set-key (kbd "M-c") 'close-current-buffer)
+    (if (not (or (one-window-p t) gud-minor-mode))
+        (delete-window))
+)
+(global-set-key (kbd "M-c") 'eide-close-current-buffer)
 (global-set-key (kbd "C-o") 'find-file)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; windows
@@ -377,7 +435,10 @@
 
 ;(define-key input-decode-map [?\C-m] [C-m])
 ;(global-set-key (kbd "<C-m>") 'switch-to-buffer-in-window) ;; multiply buffer
-(global-set-key (kbd "M-m") 'switch-to-buffer-in-window) ;; multiply buffer
+(global-set-key (kbd "M-m") (lambda () ; multiply buffer
+    (interactive)
+    (if (not gud-minor-mode)
+        (switch-to-buffer-in-window))))
 
 ;; TODO:
 ;; 2) tune makr and global mark ring
